@@ -9,10 +9,11 @@ import d4rl
 import gym
 import numpy as np
 import tensorflow as tf
-from rlutils.algos.tf.offline.bracp import BRACPRunner, BRACPAgent
+from rlutils.infra.runner import get_argparser_from_func
 from rlutils.logx import EpochLogger
-from rlutils.runner import get_argparser_from_func
 from tqdm.auto import tqdm
+
+from bracp import BRACPRunner, BRACPAgent
 
 __all__ = ['d4rl']
 

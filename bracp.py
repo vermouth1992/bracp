@@ -10,16 +10,51 @@ import time
 
 import gym
 import numpy as np
+import rlutils.np as rln
 import rlutils.tf as rlu
 import tensorflow as tf
 import tensorflow_probability as tfp
-from rlutils.future.optimizer import get_adam_optimizer, minimize
-from rlutils.logx import EpochLogger
-from rlutils.replay_buffers import PyUniformParallelEnvReplayBuffer
-from rlutils.runner import TFRunner
+from rlutils.infra.runner import TFRunner
+from rlutils.logx import EpochLogger, setup_logger_kwargs
+from rlutils.replay_buffers import PyUniformReplayBuffer
+from rlutils.tf.future.optimizer import get_adam_optimizer, minimize
 from tqdm.auto import tqdm, trange
 
 tfd = tfp.distributions
+
+
+class LagrangeLayer(tf.keras.Model):
+    def __init__(self, initial_value=1.0, min_value=None, max_value=10000.):
+        super(LagrangeLayer, self).__init__()
+        self.log_value = rln.inverse_softplus(initial_value)
+        if min_value is not None:
+            self.min_log_value = rln.inverse_softplus(min_value)
+        else:
+            self.min_log_value = None
+        if max_value is not None:
+            self.max_log_value = rln.inverse_softplus(max_value)
+        else:
+            self.max_log_value = None
+        self.build(input_shape=None)
+
+    def build(self, input_shape):
+        self.kernel = self.add_weight(
+            name='kernel',
+            shape=(),
+            dtype=tf.float32,
+            initializer=tf.keras.initializers.Constant(self.log_value)
+        )
+        self.built = True
+
+    def __call__(self, inputs=None, training=None):
+        return super(LagrangeLayer, self).__call__(inputs, training=training)
+
+    def call(self, inputs, training=None, mask=None):
+        return tf.math.softplus(rlu.functional.clip_by_value_preserve_gradient(self.kernel, self.min_log_value,
+                                                                               self.max_log_value))
+
+    def assign(self, value):
+        self.kernel.assign(rln.inverse_softplus(value))
 
 
 class BRACPAgent(tf.keras.Model):
@@ -72,13 +107,13 @@ class BRACPAgent(tf.keras.Model):
         self.target_q_network = rlu.nn.EnsembleMinQNet(ob_dim, ac_dim, q_mlp_hidden)
         rlu.functional.hard_update(self.target_q_network, self.q_network)
 
-        self.log_beta = rlu.nn.LagrangeLayer(initial_value=alpha)
+        self.log_beta = LagrangeLayer(initial_value=alpha)
         self.log_beta.compile(optimizer=get_adam_optimizer(alpha_lr))
 
-        self.log_alpha = rlu.nn.LagrangeLayer(initial_value=alpha)
+        self.log_alpha = LagrangeLayer(initial_value=alpha)
         self.log_alpha.compile(optimizer=get_adam_optimizer(alpha_lr))
 
-        self.log_gp = rlu.nn.LagrangeLayer(initial_value=gp_weight, min_value=gp_weight)
+        self.log_gp = LagrangeLayer(initial_value=gp_weight, min_value=gp_weight)
         self.log_gp.compile(optimizer=get_adam_optimizer(alpha_lr))
 
         self.target_entropy = target_entropy
@@ -266,7 +301,7 @@ class BRACPAgent(tf.keras.Model):
             # policy loss
             action, log_prob, raw_action, pi_distribution = self.policy_net((obs_tile, False))
             log_prob = tf.reduce_mean(tf.reshape(log_prob, shape=(self.n, batch_size)), axis=0)
-            q_values_pi_min = self.q_network((obs_tile, action), training=False)
+            q_values_pi_min = self.q_network((obs_tile, action, tf.constant(True)))
             q_values_pi_min = tf.reduce_mean(tf.reshape(q_values_pi_min, shape=(self.n, batch_size)), axis=0)
             # add KL divergence penalty, high variance?
             if self.reg_type in ['kl', 'cross_entropy']:
@@ -373,7 +408,7 @@ class BRACPAgent(tf.keras.Model):
         alpha = self.get_alpha(next_obs)
         next_obs = tf.tile(next_obs, multiples=(self.n, 1))
         next_action, next_action_log_prob, next_raw_action, pi_distribution = self.target_policy_net((next_obs, False))
-        target_q_values = self.target_q_network((next_obs, next_action), training=False)
+        target_q_values = self.target_q_network((next_obs, next_action, tf.constant(True)))
         target_q_values = tf.reduce_max(tf.reshape(target_q_values, shape=(self.n, batch_size)), axis=0)
         if self.kl_backup is True:
             if self.reg_type in ['kl', 'cross_entropy']:
@@ -402,7 +437,7 @@ class BRACPAgent(tf.keras.Model):
 
         with tf.GradientTape() as inner_tape:
             inner_tape.watch(pi_action)
-            q_values = self.q_network((obs, pi_action), training=False)  # (num_ensembles, None)
+            q_values = self.q_network((obs, pi_action, tf.constant(True)))  # (num_ensembles, None)
         input_gradient = inner_tape.gradient(q_values, pi_action)  # (None, act_dim)
         penalty = tf.norm(input_gradient, axis=-1)  # (None,)
         if self.reg_type == 'mmd':
@@ -425,7 +460,7 @@ class BRACPAgent(tf.keras.Model):
         # q loss
         with tf.GradientTape() as q_tape:
             q_tape.watch(self.q_network.trainable_variables)
-            q_values = self.q_network((obs, actions), training=True)  # (num_ensembles, None)
+            q_values = self.q_network((obs, actions, tf.constant(False)))  # (num_ensembles, None)
             q_values_loss = 0.5 * tf.square(rlu.functional.expand_ensemble_dim(
                 q_target, self.q_network.num_ensembles) - q_values)
             # (num_ensembles, None)
@@ -479,7 +514,7 @@ class BRACPAgent(tf.keras.Model):
         info['BehaviorLoss'] = behavior_loss
         return info
 
-    def update(self, replay_buffer: PyUniformParallelEnvReplayBuffer):
+    def update(self, replay_buffer: PyUniformReplayBuffer):
         # TODO: use different batches to update q and actor to break correlation
         data = replay_buffer.sample()
         info = self._update(**data)
@@ -510,7 +545,7 @@ class BRACPAgent(tf.keras.Model):
             action = tf.reshape(samples, shape=(n * batch_size, self.ac_dim))
             obs_tile = tf.tile(obs, (n, 1))
 
-            q_values_pi_min = self.q_network((obs_tile, action), training=True)
+            q_values_pi_min = self.q_network((obs_tile, action, tf.constant(False)))
             q_values_pi_min = tf.reduce_mean(q_values_pi_min, axis=0)
             idx = tf.argmax(tf.reshape(q_values_pi_min, shape=(n, batch_size)), axis=0,
                             output_type=tf.int32)  # (batch_size)
@@ -625,10 +660,26 @@ class BRACPRunner(TFRunner):
         dataset['done'] = dataset.pop('terminals').astype(np.float32)
         replay_size = dataset['obs'].shape[0]
         self.logger.log(f'Dataset size: {replay_size}')
-        self.replay_buffer = PyUniformParallelEnvReplayBuffer.from_data_dict(
+        self.replay_buffer = PyUniformReplayBuffer.from_data_dict(
             data=dataset,
             batch_size=batch_size
         )
+
+    def setup_logger(self, config, tensorboard=False):
+        if self.exp_name is None:
+            self.exp_name = f'{self.env_name}_{self.agent.__class__.__name__}_test'
+        assert self.exp_name is not None, 'Call setup_env before setup_logger if exp passed by the contructor is None.'
+        logger_kwargs = setup_logger_kwargs(exp_name=self.exp_name, data_dir=self.logger_path, seed=self.seed)
+        self.logger = EpochLogger(**logger_kwargs, tensorboard=tensorboard)
+        self.logger.save_config(config)
+
+        self.agent.set_logger(self.logger)
+        self.behavior_filepath = os.path.join(self.logger.output_dir, 'behavior.ckpt')
+        self.policy_behavior_filepath = os.path.join(self.logger.output_dir,
+                                                     f'policy_behavior_{self.agent.target_entropy}_{self.agent.reg_type}.ckpt')
+        self.log_beta_behavior_filepath = os.path.join(self.logger.output_dir,
+                                                       f'policy_behavior_log_beta_{self.agent.target_entropy}_{self.agent.reg_type}.ckpt')
+        self.final_filepath = os.path.join(self.logger.output_dir, 'agent_final.ckpt')
 
     def setup_agent(self,
                     num_ensembles,
@@ -668,13 +719,6 @@ class BRACPRunner(TFRunner):
                                 reg_type=reg_type, sigma=sigma, n=n, gp_weight=gp_weight,
                                 entropy_reg=entropy_reg, kl_backup=kl_backup, max_ood_grad_norm=max_ood_grad_norm,
                                 gp_type=gp_type)
-        self.agent.set_logger(self.logger)
-        self.behavior_filepath = os.path.join(self.logger.output_dir, 'behavior.ckpt')
-        self.policy_behavior_filepath = os.path.join(self.logger.output_dir,
-                                                     f'policy_behavior_{target_entropy}_{reg_type}.ckpt')
-        self.log_beta_behavior_filepath = os.path.join(self.logger.output_dir,
-                                                       f'policy_behavior_log_beta_{target_entropy}_{reg_type}.ckpt')
-        self.final_filepath = os.path.join(self.logger.output_dir, 'agent_final.ckpt')
 
     def setup_extra(self,
                     pretrain_epochs,
@@ -878,7 +922,6 @@ class BRACPRunner(TFRunner):
                      exp_name=None, logger_path=logger_path)
         runner.setup_env(env_name=env_name, num_parallel_env=num_test_episodes, asynchronous=False,
                          num_test_episodes=None)
-        runner.setup_logger(config=config, tensorboard=tensorboard)
         runner.setup_agent(num_ensembles=num_ensembles,
                            behavior_mlp_hidden=behavior_mlp_hidden,
                            behavior_lr=behavior_lr,
@@ -888,6 +931,7 @@ class BRACPRunner(TFRunner):
                            policy_behavior_lr=policy_behavior_lr,
                            reg_type=reg_type, sigma=sigma, n=n, gp_weight=gp_weight, gp_type=gp_type,
                            entropy_reg=entropy_reg, kl_backup=kl_backup, max_ood_grad_norm=max_ood_grad_norm)
+        runner.setup_logger(config=config, tensorboard=tensorboard)
         runner.setup_extra(pretrain_epochs=pretrain_epochs,
                            save_freq=save_freq,
                            max_kl=max_kl,
@@ -897,7 +941,6 @@ class BRACPRunner(TFRunner):
                            std_scale=std_scale)
         runner.setup_replay_buffer(batch_size=batch_size,
                                    reward_scale=reward_scale)
-
         runner.run()
 
 
