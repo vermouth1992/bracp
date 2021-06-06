@@ -854,7 +854,7 @@ class BRACPRunner(TFRunner):
              max_kl: float = None,
              use_gp=True,
              reg_type='kl',
-             gp_type='hard',
+             gp_type='softplus',
              sigma=20,
              n=5,
              gp_weight=0.1,
