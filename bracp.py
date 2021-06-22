@@ -807,7 +807,7 @@ class BRACPRunner(TFRunner):
             print(e)
             EpochLogger.log('The structure of model is altered. Add --pretrain_cloning flag', color='red')
             raise
-
+        return
         distance = []
         for obs, act in obs_act_dataset:
             distance.append(self.agent.compute_pi_pib_distance(obs)[0])
