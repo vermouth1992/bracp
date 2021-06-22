@@ -232,10 +232,10 @@ class BRACPAgent(tf.keras.Model):
         samples_pi_b = tf.reshape(samples_pi_b, shape=(self.n * self.behavior_policy.num_ensembles, batch_size,
                                                        self.ac_dim))
 
-        samples_pi = tf.clip_by_value(samples_pi, -3., 3.)
-        samples_pi_b = tf.clip_by_value(samples_pi_b, -3., 3.)
-        samples_pi = tf.tanh(samples_pi)
-        samples_pi_b = tf.tanh(samples_pi_b)
+        # samples_pi = tf.clip_by_value(samples_pi, -3., 3.)
+        # samples_pi_b = tf.clip_by_value(samples_pi_b, -3., 3.)
+        # samples_pi = tf.tanh(samples_pi)
+        # samples_pi_b = tf.tanh(samples_pi_b)
         # samples_pi = self.policy_net.transform_raw_action(samples_pi)
         # samples_pi_b = self.behavior_policy.transform_raw_action(samples_pi_b)
         mmd_loss = self.mmd_loss_laplacian(samples_pi, samples_pi_b, sigma=self.sigma)
