@@ -35,30 +35,30 @@ def thunk(**args):
             'generalization_threshold': 0.2 if reg_type == 'kl' else 0.02,
         },
         'walker2d-medium-v0': {
-            'generalization_threshold': 1.0 if reg_type == 'kl' else 0.1,
+            'generalization_threshold': 1.0 if reg_type == 'kl' else 0.05,
         },
         'halfcheetah-medium-v0': {
-            'generalization_threshold': 7.0 if reg_type == 'kl' else 0.7,
+            'generalization_threshold': 7.0 if reg_type == 'kl' else 0.05,
             'max_ood_grad_norm': 0.1,
         },
         'hopper-medium-replay-v0': {
-            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.3,
+            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.05,
         },
         'walker2d-medium-replay-v0': {
-            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.3,
+            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.05,
         },
         'halfcheetah-medium-replay-v0': {
-            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.3,
+            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.05,
             'max_ood_grad_norm': 0.1,
         },
         'hopper-random-v0': {
-            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.3,
+            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.05,
         },
         'walker2d-random-v0': {
-            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.3,
+            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.05,
         },
         'halfcheetah-random-v0': {
-            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.3,
+            'generalization_threshold': 3.0 if reg_type == 'kl' else 0.05,
             'max_ood_grad_norm': 0.1,
         },
     }
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     # env_names = ['hopper-medium-replay-v0', 'hopper-random-v0', 'walker2d-medium-v0']
     env_names = ['walker2d-medium-expert-v0', 'halfcheetah-medium-expert-v0', 'halfcheetah-medium-v0']
     experiments = rl_infra.runner.ExperimentGrid()
-    experiments.add(key='env_name', vals=env_names)
+    experiments.add(key='env_name', vals=env_names, in_name=True)
     experiments.add(key='reg_type', vals=['kl', 'mmd'], in_name=True)
     experiments.add(key='use_gp', vals=[True, False], in_name=True)
     experiments.add(key='seed', vals=[200, 201, 202])
