@@ -831,6 +831,7 @@ class BRACPRunner(TFRunner):
     @classmethod
     def main(cls,
              env_name,
+             exp_name=None,
              steps_per_epoch=2500,
              pretrain_epochs=200,
              pretrain_behavior=False,
@@ -919,7 +920,7 @@ class BRACPRunner(TFRunner):
         config = locals()
 
         runner = cls(seed=seed, steps_per_epoch=steps_per_epoch, epochs=epochs,
-                     exp_name=None, logger_path=logger_path)
+                     exp_name=exp_name, logger_path=logger_path)
         runner.setup_env(env_name=env_name, num_parallel_env=num_test_episodes, asynchronous=False,
                          num_test_episodes=None)
         runner.setup_agent(num_ensembles=num_ensembles,
