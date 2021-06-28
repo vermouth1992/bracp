@@ -19,12 +19,12 @@ pip install git+https://github.com/rail-berkeley/d4rl@master#egg=d4rl
 
 #### rlutils library
 ```shell
-pip install -e .
+pip install rlutils-python
 ```
 
 ## Training
 ```shell
-python examples/d4rl_bracp.py train --env_name halfcheetah-medium-v0 --seed 110
+python d4rl_bracp.py train --env_name halfcheetah-medium-v0 --seed 110
 ```
 The script will first pretrain the behavior policy and the initial policy that minimize the KL divergence.
 
