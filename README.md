@@ -19,7 +19,7 @@ pip install git+https://github.com/rail-berkeley/d4rl@master#egg=d4rl
 
 #### rlutils library
 ```shell
-pip install rlutils-python
+pip install rlutils-python==0.0.3
 ```
 
 ## Training
