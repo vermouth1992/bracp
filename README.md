@@ -1,4 +1,4 @@
-# BRACP: Improved Behavior Regularized Offline Reinforcement Learning
+# BRAC+: Improved Behavior Regularized Offline Reinforcement Learning
 This repository is the official implementation of [BRAC+: Improved Behavior Regularized Actor Critic for Offline Reinforcement Learning](https://arxiv.org/abs/2110.00894).
 ## Requirements
 We high recommend that you create a new Python environment to test our code
